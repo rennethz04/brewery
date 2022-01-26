@@ -150,6 +150,7 @@ add_action( 'wp_head', 'twentytwentytwo_preload_webfonts' );
 // Add block patterns
 require get_template_directory() . '/inc/block-patterns.php';
 
+// Create custom post type "brewery"
 add_action("init", "register_brewers_cpt");
 function register_brewers_cpt() {
 	register_post_type("brewery", [
@@ -159,37 +160,49 @@ function register_brewers_cpt() {
 	]);
 }
 
+// Cron for automatic updates
 if( !wp_next_scheduled('update_brewery_list') ) {
 	wp_schedule_event(time(), 'weekly', 'get_breweries_from_api');
 }
 
+// Register get_breweries_from_api function
 add_action('wp_ajax_nopriv_get_breweries_from_api', 'get_breweries_from_api');
 add_action('wp_ajax_get_breweries_from_api', 'get_breweries_from_api');
 
+// Api Function
 function get_breweries_from_api() {
 
+	// Create file for logs
 	$file = get_stylesheet_directory() . "/report.txt";
 
+	// check the current page of the api
 	$current_page = ( !empty($_POST["current_page"]) ) ? $_POST["current_page"] : 1 ;
 	$breweries = [];
 
+	// get data from the api
 	$results = wp_remote_retrieve_body(wp_remote_get('https://api.openbrewerydb.org/breweries/?page=' . $current_page . '&per_page=50'));
 
+	// put the logs
 	file_put_contents($file, "Current page:" . $current_page. "\n\n" . FILE_APPEND);
 
 	$results = json_decode($results);
 
+	// check if data is array
 	if( !is_array($results) || empty($results) ) {
 		return false;
 	}
 
 	$breweries[] = $results;
 
+	// lopp to the api data
 	foreach ($breweries[0] as $brewery) {
+
+		// create unique slug
 		$brewery_slug = sanitize_title($brewery->name . "-" . $brewery->id);
 
 		$existing_brewery = get_page_by_path($brewery_slug, 'OBJECT', 'brewery');
 
+		// check if the data is already existing then add if not existing.
 		if($existing_brewery === null) {
 			$inserted_brewery = wp_insert_post([
 				'post_name' => $brewery_slug,
@@ -220,6 +233,8 @@ function get_breweries_from_api() {
 			foreach ($fillable as $key => $name) {
 				update_field($key, $brewery->$name, $inserted_brewery);
 			}
+
+		// if data is existing, check for updates then update it
 		} else {
 			$existing_brewery_id = $existing_brewery->ID;
 			$existing_brewery_timestamp = get_field("updated_at", $existing_brewery_id);
@@ -249,6 +264,7 @@ function get_breweries_from_api() {
 
 	$current_page = $current_page + 1;
 
+	// the page to call the ajax call for the api
 	wp_remote_post( admin_url('admin-ajax.php?action=get_breweries_from_api'), [
 		'blocking' => false,
 		'sslverify' => false,
